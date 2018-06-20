@@ -415,7 +415,7 @@ class UiMainWindow(QtWidgets.QMainWindow):
         if self.params['audio:'] == 'True':
             self.audioAct.setChecked(True)
         else:
-            self.audioAct.setChecked(False)git
+            self.audioAct.setChecked(False)
         if self.params['progress_quit:'] == 'True':
             self.progress_auto_quit_Act.setChecked(True)
         else:
@@ -519,8 +519,8 @@ class UiMainWindow(QtWidgets.QMainWindow):
             des différent boutons de l'interface
         """
         if os.path.isfile(self.output_file.text()) and 'xls' in os.path.splitext(self.output_file.text())[1] and len(
-                self.identifiant.text()) > 0 and len(self.password.text()) > 0 and len(
-            self.societe_champ.text()) > 0 and len(self.get_keywords_checked(self.listWidget)) > 0:
+                self.identifiant.text()) > 0 and len(self.password.text()) > 0 and \
+                len(self.get_keywords_checked(self.listWidget)) > 0:
 
             # Sauve l'identifiant, le mot de passe et le chemin du fichier excel dans le fichier config.txt
             self.save_params()
@@ -914,6 +914,7 @@ class Bot(QThread):
         self.c = Communicate()
         self.continueflag = True
         self.pauseflag = False
+        self.domain=''
         self.targetedInfo = ['nom', 'fonction', 'société', 'profil', 'localisation', 'tel', 'mail', 'site', 'domain',
                              'auparavant']
         # Ouvre un navigateur en tâche de fond selon le choix de l'utilisateur
@@ -945,20 +946,22 @@ class Bot(QThread):
                 if self.continueflag is False:
                     self.c.update_statut_recherche.emit("Recherche stoppée par l'utilisateur")
                     break
+                nom_entreprise = 'OK'
+                # Fixe la variable à OK par défaut, nom_entreprise est actualisée si le champ entreprise est rempli
+                if len(self.inputUser['ENTREPRISE']) > 0:
+                    # Lance une recherche sur l'entreprise pour en extraire le domaine
+                    try:
+                        self.browser.get(self.create_url_to_search(self.inputUser['ENTREPRISE'], typeSearch='companies'))
+                    except:
+                        self.c.update_statut_recherche.emit('Erreur lors du chargement de la page')
+                        break
 
-                # Lance une recherche sur l'entreprise pour en extraire le domaine
-                try:
-                    self.browser.get(self.create_url_to_search(self.inputUser['ENTREPRISE'], typeSearch='companies'))
-                except:
-                    self.c.update_statut_recherche.emit('Erreur lors du chargement de la page')
-                    break
+                    if self.continueflag is False:
+                        self.c.update_statut_recherche.emit("Recherche stoppée par l'utilisateur")
+                        break
 
-                if self.continueflag is False:
-                    self.c.update_statut_recherche.emit("Recherche stoppée par l'utilisateur")
-                    break
-
-                self.waiting_for('search/results/')  # Attend que la page se charge et que l'url est changé
-                self.domain, nom_entreprise = self.get_company_domain()  # Extrait le domaine de l'entreprise
+                    self.waiting_for('search/results/')  # Attend que la page se charge et que l'url est changé
+                    self.domain, nom_entreprise = self.get_company_domain()  # Extrait le domaine de l'entreprise
 
                 if nom_entreprise == 'OK':
                     # Lance une recherche sur les employés de cette entreprise
@@ -1083,51 +1086,51 @@ class Bot(QThread):
                 "//div[@class='search-advanced-facets__layout display-flex align-items-center justify-space-between']")
 
             # Si l'utilsateur a choisi le mode Actuel+Auparavant, on ne fait rien c'est la recherche normale
+            if len(self.inputUser['ENTREPRISE']) > 0:  #Si le champ Entreprise est rempli
+                if self.inputUser['recherche_type'] == 'Actuel':  # Si l'utilisateur à choisi le mode Actuel
+                    # Localise le conteneur des options du filtre Entreprise Actuelle
+                    zoneactuel = form.find_element_by_xpath(
+                        ".//fieldset[@class='search-s-facet__values search-s-facet__values--facetCurrentCompany']")
+                    self.browser.execute_script("arguments[0].scrollIntoView(true);", zoneactuel)
+                    # récupère la division blocante pour sélectionner les entreprises
+                    block = zoneactuel.find_element_by_xpath(
+                        ".//ol[@class='search-s-facet__list list-style-none']")
 
-            if self.inputUser['recherche_type'] == 'Actuel':  # Si l'utilisateur à choisi le mode Actuel
-                # Localise le conteneur des options du filtre Entreprise Actuelle
-                zoneactuel = form.find_element_by_xpath(
-                    ".//fieldset[@class='search-s-facet__values search-s-facet__values--facetCurrentCompany']")
-                self.browser.execute_script("arguments[0].scrollIntoView(true);", zoneactuel)
-                # récupère la division blocante pour sélectionner les entreprises
-                block = zoneactuel.find_element_by_xpath(
-                    ".//ol[@class='search-s-facet__list list-style-none']")
+                    # Récupère les propositions de Linkedin
+                    listentreprise = zoneactuel.find_elements_by_xpath(".//li[@class='search-facet__value ']")
+                    for entreprise in listentreprise:
+                        entrepriseid = entreprise.find_element_by_xpath(
+                            ".//label[@class='search-s-facet-value__label Sans-15px-black-70%']")
+                        # print(entrepriseid.text)
 
-                # Récupère les propositions de Linkedin
-                listentreprise = zoneactuel.find_elements_by_xpath(".//li[@class='search-facet__value ']")
-                for entreprise in listentreprise:
-                    entrepriseid = entreprise.find_element_by_xpath(
-                        ".//label[@class='search-s-facet-value__label Sans-15px-black-70%']")
-                    # print(entrepriseid.text)
+                        if self.supprime_accent(self.inputUser['ENTREPRISE']).upper() in self.supprime_accent(
+                                entrepriseid.text).upper():
+                            # Récupère l'élément cliquable
+                            entreprise.find_element_by_xpath(".//input[@class='medium-input mr3']")
+                            # Clique sur la checkbox de l'entreprise en passant au delà de la division blocante
+                            webdriver.ActionChains(self.browser).move_to_element(block).click(entreprise).perform()
+                            break
 
-                    if self.supprime_accent(self.inputUser['ENTREPRISE']).upper() in self.supprime_accent(
-                            entrepriseid.text).upper():
-                        # Récupère l'élément cliquable
-                        entreprise.find_element_by_xpath(".//input[@class='medium-input mr3']")
-                        # Clique sur la checkbox de l'entreprise en passant au delà de la division blocante
-                        webdriver.ActionChains(self.browser).move_to_element(block).click(entreprise).perform()
-                        break
-
-            if self.inputUser['recherche_type'] == 'Auparavant':  # Si l'utilisateur a choisi le mode auparavant
-                zoneauparavant = form.find_element_by_xpath(
-                    ".//fieldset[@class='search-s-facet__values search-s-facet__values--facetPastCompany']")
-                self.browser.execute_script("arguments[0].scrollIntoView(true);", zoneauparavant)
-                # self.sleep(2)
-                block = zoneauparavant.find_element_by_xpath(
-                    ".//ol[@class='search-s-facet__list list-style-none']")  # récupère la division blocante pour sélectionner les entreprises
-                listentreprise = zoneauparavant.find_elements_by_xpath(".//li[@class='search-facet__value ']")
-                for entreprise in listentreprise:
-                    entrepriseid = entreprise.find_element_by_xpath(
-                        ".//label[@class='search-s-facet-value__label Sans-15px-black-70%']")
-                    # print(entrepriseid.text)
-                    if self.supprime_accent(self.inputUser['ENTREPRISE']).upper() in self.supprime_accent(
-                            entrepriseid.text).upper():
-                        # Récupère l'élément cliquable
-                        entreprise.find_element_by_xpath(".//input[@class='medium-input mr3']")
-                        # Clique sur la checkbox de l'entreprise en passant au delà de la division blocante
-                        webdriver.ActionChains(self.browser).move_to_element(block).click(entreprise).perform()
-                        self.sleep(1)
-                        break
+                if self.inputUser['recherche_type'] == 'Auparavant':  # Si l'utilisateur a choisi le mode auparavant
+                    zoneauparavant = form.find_element_by_xpath(
+                        ".//fieldset[@class='search-s-facet__values search-s-facet__values--facetPastCompany']")
+                    self.browser.execute_script("arguments[0].scrollIntoView(true);", zoneauparavant)
+                    # self.sleep(2)
+                    block = zoneauparavant.find_element_by_xpath(
+                        ".//ol[@class='search-s-facet__list list-style-none']")  # récupère la division blocante pour sélectionner les entreprises
+                    listentreprise = zoneauparavant.find_elements_by_xpath(".//li[@class='search-facet__value ']")
+                    for entreprise in listentreprise:
+                        entrepriseid = entreprise.find_element_by_xpath(
+                            ".//label[@class='search-s-facet-value__label Sans-15px-black-70%']")
+                        # print(entrepriseid.text)
+                        if self.supprime_accent(self.inputUser['ENTREPRISE']).upper() in self.supprime_accent(
+                                entrepriseid.text).upper():
+                            # Récupère l'élément cliquable
+                            entreprise.find_element_by_xpath(".//input[@class='medium-input mr3']")
+                            # Clique sur la checkbox de l'entreprise en passant au delà de la division blocante
+                            webdriver.ActionChains(self.browser).move_to_element(block).click(entreprise).perform()
+                            self.sleep(1)
+                            break
 
             try:
                 # Récupère dans l'input de localisation et récherche :région de ville et en extrait la ville
@@ -1398,8 +1401,8 @@ class Bot(QThread):
                                         statut[nom] = 'Nouveau'
                                     else:  # Si pas de mention de l'entreprise dans les intitulé de poste
                                         statut[nom] = 'Indéterminé'
-                                print(nom)
-                                print(job[nom])
+                                # print(nom)
+                                # print(job[nom])
 
                                 break
 
